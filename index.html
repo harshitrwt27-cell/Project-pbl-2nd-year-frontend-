@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bus Route Optimizer - Select Region</title>
+    <link rel="stylesheet" href="public/style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚍</text></svg>">
+</head>
+<body>
+    <div class="container">
+        <section class="hero-panel">
+            <p class="hero-label">Smart Transit Navigation</p>
+            <h1>🚍 Bus Route Optimizer</h1>
+            <p class="subtitle">Choose your region and get faster route planning with algorithm-based optimization.</p>
+            <div class="hero-kpis">
+                <div class="kpi-card">
+                    <span class="kpi-value">2</span>
+                    <span class="kpi-label">Regions</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-value">19</span>
+                    <span class="kpi-label">Total Stops</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-value">2</span>
+                    <span class="kpi-label">Algorithms</span>
+                </div>
+            </div>
+        </section>
+
+        <div class="region-grid">
+            <div class="region-card">
+                <span class="region-badge mountain">Mountain Terrain</span>
+                <div class="region-icon">⛰️</div>
+                <h2>Uttarakhand Hilly Region</h2>
+                <p class="region-description">Designed for winding roads and elevation-heavy connectivity between hill stations.</p>
+                
+                <div class="region-info">
+                    <p><strong>Cities:</strong> 9</p>
+                    <p><strong>Coverage:</strong> Hilly Regions</p>
+                </div>
+
+                <div class="cta-row">
+                    <a href="route.html?region=Uttarakhand" class="region-button">Find Route</a>
+                    <a href="network.html?region=Uttarakhand" class="region-button secondary">View Network</a>
+                </div>
+            </div>
+
+            <div class="region-card">
+                <span class="region-badge highway">National Corridors</span>
+                <div class="region-icon">🗺️</div>
+                <h2>India Wide Highways</h2>
+                <p class="region-description">Built for long-distance intercity routes with broad highway network coverage.</p>
+                
+                <div class="region-info">
+                    <p><strong>Cities:</strong> 10</p>
+                    <p><strong>Coverage:</strong> All India</p>
+                </div>
+
+                <div class="cta-row">
+                    <a href="route.html?region=India" class="region-button">Find Route</a>
+                    <a href="network.html?region=India" class="region-button secondary">View Network</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="page-tip">
+            <p>💡 Tip: Use the Dijkstra or A* algorithm to find the shortest path between cities and bus stops</p>
+        </div>
+
+        <div class="page-tip secondary-tip">
+            <p>Try both regions to compare route behavior in dense highway graphs versus hilly transport networks.</p>
+        </div>
+    </div>
+</body>
+</html>

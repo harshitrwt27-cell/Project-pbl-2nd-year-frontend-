@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bus Route Optimizer - Network Map</title>
+    <link rel="stylesheet" href="public/style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚍</text></svg>">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header-row">
+            <div>
+                <h1>🗺️ Bus Network Map</h1>
+                <p class="subtitle" id="regionName">Region</p>
+            </div>
+            <a href="index.html" class="region-button back-link">← Change Region</a>
+        </div>
+
+        <nav>
+            <a href="#" id="routeLink">Route Finder</a>
+            <a href="#" id="networkLink" aria-current="page">Network Map</a>
+        </nav>
+
+        <section class="page-intro">
+            <h2>Explore Network Topology</h2>
+            <p>Inspect stop-level connections, validate graph density, and open precise coordinates in Google Maps.</p>
+            <div class="intro-grid">
+                <div class="intro-item"><strong>Views:</strong> Leaflet + Google</div>
+                <div class="intro-item"><strong>Precision:</strong> Stop coordinate deep links</div>
+                <div class="intro-item"><strong>Data:</strong> Real backend graph nodes</div>
+            </div>
+        </section>
+
+        <div class="map-head">
+            <h3>Interactive Network Map</h3>
+            <span id="mapDistance"></span>
+        </div>
+        <div id="map" class="leaflet-map"></div>
+
+        <div class="map-wrap">
+            <div class="map-head">
+                <h3>Google Map View</h3>
+                <a id="openGoogleNetwork" class="region-button secondary" href="#" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
+            </div>
+            <iframe
+                id="googleMapFrame"
+                class="google-map-embed"
+                title="Google map network view"
+                loading="lazy"
+                allowfullscreen
+                referrerpolicy="no-referrer-when-downgrade"
+            ></iframe>
+        </div>
+
+        <h2 class="section-title">📍 Bus Stop Details</h2>
+        <div class="network-grid" id="stopsGrid"></div>
+    </div>
+
+    <script>
+    const API_BASE_URL = "https://pbl-daa-1-1.onrender.com";
+    
+    function apiUrl(path) {
+        return `${API_BASE_URL}${path}`;
+    }
+
+    function getUrlParam(param) {
+        const searchParams = new URLSearchParams(window.location.search);
+        return searchParams.get(param) || 'Uttarakhand';
+    }
+
+    const region = getUrlParam('region');
+    const REGION_MAP = {
+        'Uttarakhand': { name: 'Uttarakhand Hilly Region', routeLink: 'route.html?region=Uttarakhand' },
+        'India': { name: 'India Wide Highways', routeLink: 'route.html?region=India' }
+    };
+
+    let map;
+    let markers = [];
+    let routeLayer;
+    let coordinates = {};
+    let graph = {};
+
+    function buildGoogleCoordsLink(lat, lng, zoom = 12) {
+        return `https://www.google.com/maps/@${lat},${lng},${zoom}z`;
+    }
+
+    function getZoomFromSpread(latSpread, lngSpread) {
+        const spread = Math.max(latSpread, lngSpread);
+        if (spread > 20) return 4;
+        if (spread > 10) return 5;
+        if (spread > 5) return 6;
+        if (spread > 2.5) return 7;
+        if (spread > 1.2) return 8;
+        if (spread > 0.6) return 9;
+        if (spread > 0.3) return 10;
+        if (spread > 0.15) return 11;
+        return 12;
+    }
+
+    function initPage() {
+        document.getElementById('regionName').textContent = REGION_MAP[region]?.name || region;
+        document.getElementById('routeLink').href = REGION_MAP[region]?.routeLink || '#';
+        document.getElementById('networkLink').href = `network.html?region=${region}`;
+        document.getElementById('mapDistance').innerText = 'Loading network...';
+        
+        // Fetch network data
+        console.log('Fetching network data for region:', region);
+        fetch(apiUrl('/api/get-network'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ region: region })
+        })
+        .then(r => {
+            console.log('Get network response status:', r.status);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
+        .then(data => {
+            console.log('Network data received:', data);
+            if (data.coordinates && data.graph) {
+                coordinates = data.coordinates;
+                graph = data.graph;
+                initMap();
+                displayStops();
+                document.getElementById('mapDistance').innerText = `${Object.keys(coordinates).length} stops`;
+            } else {
+                console.error('Invalid network data:', data);
+                alert('Failed to load network data');
+            }
+        })
+        .catch(err => {
+            console.error('Error loading network:', err);
+            alert('Error: ' + err.message);
+        });
+    }
+
+    function initMap() {
+        let centerLat = 0, centerLng = 0;
+        let count = 0;
+        let minLat = Infinity;
+        let maxLat = -Infinity;
+        let minLng = Infinity;
+        let maxLng = -Infinity;
+        
+        Object.values(coordinates).forEach(coords => {
+            centerLat += coords[0];
+            centerLng += coords[1];
+            count++;
+
+            minLat = Math.min(minLat, coords[0]);
+            maxLat = Math.max(maxLat, coords[0]);
+            minLng = Math.min(minLng, coords[1]);
+            maxLng = Math.max(maxLng, coords[1]);
+        });
+        
+        centerLat /= count;
+        centerLng /= count;
+
+        const latSpread = maxLat - minLat;
+        const lngSpread = maxLng - minLng;
+        const googleZoom = getZoomFromSpread(latSpread, lngSpread);
+
+        setGoogleMapView(centerLat, centerLng, googleZoom);
+
+        map = L.map('map').setView([centerLat, centerLng], 8);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 18,
+        }).addTo(map);
+
+        addBusStopMarkers();
+    }
+
+    function setGoogleMapView(lat, lng, zoom) {
+        const googleFrame = document.getElementById('googleMapFrame');
+        const openGoogleLink = document.getElementById('openGoogleNetwork');
+        const query = `${lat},${lng}`;
+
+        googleFrame.src = `https://www.google.com/maps?q=${encodeURIComponent(query)}&z=${zoom}&output=embed`;
+        openGoogleLink.href = buildGoogleCoordsLink(lat, lng, zoom);
+    }
+
+    function addBusStopMarkers() {
+        Object.entries(coordinates).forEach(([stopName, coords]) => {
+            const stopGoogleLink = buildGoogleCoordsLink(coords[0], coords[1], 14);
+            const marker = L.marker([coords[0], coords[1]])
+                .addTo(map)
+                .bindPopup(`<b>${stopName}</b><br>Bus Stop<br><a href="${stopGoogleLink}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>`)
+                .bindTooltip(stopName, {permanent: false, direction: 'top'});
+            markers.push(marker);
+        });
+
+        if (markers.length > 0) {
+            const group = new L.featureGroup(markers);
+            map.fitBounds(group.getBounds(), {padding: [20, 20]});
+        }
+
+        setTimeout(() => map.invalidateSize(), 100);
+    }
+
+    function displayStops() {
+        const grid = document.getElementById('stopsGrid');
+        grid.innerHTML = '';
+        
+        Object.entries(graph).forEach(([stopName, connections]) => {
+            const card = document.createElement('div');
+            card.className = 'stop-card';
+            const stopCoords = coordinates[stopName];
+            const stopGoogleLink = stopCoords ? buildGoogleCoordsLink(stopCoords[0], stopCoords[1], 14) : '#';
+            
+            let connHtml = '<ul class="network-conn-list">';
+            connections.forEach(([neighbor, distance]) => {
+                connHtml += `<li class="network-conn-item"><strong>${neighbor}</strong><br>${distance.toFixed(1)} km</li>`;
+            });
+            connHtml += '</ul>';
+            
+            card.innerHTML = `
+                <h3>${stopName}</h3>
+                <p><strong>Connections:</strong> ${connections.length}</p>
+                <p><a class="stop-map-link" href="${stopGoogleLink}" target="_blank" rel="noopener noreferrer">Open this stop in Google Maps</a></p>
+                <div class="scroll-panel">
+                    ${connHtml}
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', initPage);
+    </script>
+
+</body>
+</html>

@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bus Route Optimizer - Route Finder</title>
+    <link rel="stylesheet" href="public/style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚍</text></svg>">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header-row">
+            <div>
+                <h1>🚍 Bus Route Optimizer</h1>
+                <p class="subtitle" id="regionName">Region</p>
+            </div>
+            <a href="index.html" class="region-button back-link">← Change Region</a>
+        </div>
+
+        <nav>
+            <a href="#" id="routeLink">Route Finder</a>
+            <a href="#" id="networkLink">Network Map</a>
+        </nav>
+
+        <section class="page-intro">
+            <h2>Plan Your Journey</h2>
+            <p>Choose your algorithm, fetch your nearest stop, and compare optimized travel distance and time in one place.</p>
+            <div class="intro-grid">
+                <div class="intro-item"><strong>Algorithms:</strong> Dijkstra, A*</div>
+                <div class="intro-item"><strong>Live Inputs:</strong> Geo-location + stop graph</div>
+                <div class="intro-item"><strong>Output:</strong> Route path, distance, map</div>
+            </div>
+        </section>
+
+        <form id="routeForm" onsubmit="return false;">
+            <div class="form-group">
+                <label>Algorithm:</label>
+                <select id="algorithm">
+                    <option value="dijkstra">Dijkstra (Guaranteed Optimal)</option>
+                    <option value="a_star">A* (Heuristic Optimized)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Your Location:</label>
+                <button type="button" id="getLocationBtn" class="location-btn">📍 Get My Location</button>
+                <div id="locationInfo" class="info-box success">
+                    <p id="nearestStopInfo" class="info-text"></p>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Start Stop:</label>
+                <select id="start" required>
+                    <option value="">Select Start Stop</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>End Stop:</label>
+                <select id="end" required>
+                    <option value="">Select End Stop</option>
+                </select>
+                <div id="routeDistanceInfo" class="info-box primary">
+                    <p id="routeDistanceText" class="info-text"></p>
+                </div>
+            </div>
+
+            <button type="button" id="findRouteBtn">Find Optimal Route</button>
+        </form>
+
+        <div id="loading" class="loading-state is-hidden">
+            <p>🔍 Calculating route...</p>
+        </div>
+
+        <div id="error" class="is-hidden"></div>
+        <div id="result" class="is-hidden"></div>
+        <div id="mapWrap" class="map-wrap is-hidden">
+            <div class="map-head">
+                <h3>Interactive Route Map</h3>
+                <span id="mapDistance"></span>
+            </div>
+            <div id="map" class="leaflet-map"></div>
+        </div>
+    </div>
+
+    <script>
+    const API_BASE_URL = "https://pbl-daa-1-1.onrender.com";
+    
+    function apiUrl(path) {
+        return `${API_BASE_URL}${path}`;
+    }
+
+    function getUrlParam(param) {
+        const searchParams = new URLSearchParams(window.location.search);
+        return searchParams.get(param) || 'Uttarakhand';
+    }
+
+    const region = getUrlParam('region');
+    const REGION_MAP = {
+        'Uttarakhand': { name: 'Uttarakhand Hilly Region', networkLink: 'network.html?region=Uttarakhand' },
+        'India': { name: 'India Wide Highways', networkLink: 'network.html?region=India' }
+    };
+
+    let userLocation = null;
+    let nearestStop = null;
+    let stopsList = [];
+    let currentRouteData = null;
+    let map = null;
+    let routeLayer = null;
+    let routeMarkers = [];
+
+    function showBlock(elementId) {
+        document.getElementById(elementId).classList.remove('is-hidden');
+    }
+
+    function hideBlock(elementId) {
+        document.getElementById(elementId).classList.add('is-hidden');
+    }
+
+    function initPage() {
+        document.getElementById('regionName').textContent = REGION_MAP[region]?.name || region;
+        document.getElementById('routeLink').href = `route.html?region=${region}`;
+        document.getElementById('networkLink').href = REGION_MAP[region]?.networkLink || '#';
+        
+        // Fetch stops from backend
+        console.log('Fetching stops for region:', region);
+        fetch(apiUrl('/api/get-stops'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ region: region })
+        })
+        .then(r => {
+            console.log('Get stops response status:', r.status);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
+        .then(data => {
+            console.log('Stops received:', data);
+            if (data.stops && data.stops.length > 0) {
+                stopsList = data.stops;
+                populateStopsSelects();
+            } else {
+                showError('No stops available for this region');
+            }
+        })
+        .catch(err => {
+            console.error('Error loading stops:', err);
+            showError('Failed to load stops: ' + err.message);
+        });
+    }
+
+    function initMapIfNeeded() {
+        if (map) return;
+        map = L.map('map').setView([20.5937, 78.9629], 5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 18
+        }).addTo(map);
+    }
+
+    function populateStopsSelects() {
+        const startSelect = document.getElementById('start');
+        const endSelect = document.getElementById('end');
+        
+        stopsList.forEach(stop => {
+            let opt1 = document.createElement('option');
+            opt1.value = stop;
+            opt1.textContent = stop;
+            startSelect.appendChild(opt1);
+
+            let opt2 = document.createElement('option');
+            opt2.value = stop;
+            opt2.textContent = stop;
+            endSelect.appendChild(opt2);
+        });
+    }
+
+    document.getElementById('getLocationBtn').addEventListener('click', function() {
+        if (navigator.geolocation) {
+            this.innerHTML = '📍 Getting location...';
+            this.disabled = true;
+            
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    userLocation = {
+                        lat: position.coords.latitude,
+                        lon: position.coords.longitude
+                    };
+                    findNearestStop();
+                },
+                function(error) {
+                    showError('Unable to get your location.');
+                    document.getElementById('getLocationBtn').innerHTML = '📍 Get My Location';
+                    document.getElementById('getLocationBtn').disabled = false;
+                }
+            );
+        }
+    });
+
+    function findNearestStop() {
+        console.log('Finding nearest stop for:', userLocation);
+        fetch(apiUrl('/api/get-nearest-stop'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                lat: userLocation.lat,
+                lon: userLocation.lon,
+                region: region
+            })
+        })
+        .then(r => {
+            console.log('Get nearest stop response:', r.status);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
+        .then(data => {
+            console.log('Nearest stop data:', data);
+            if (data.nearest_stop) {
+                nearestStop = data;
+                document.getElementById('nearestStopInfo').innerHTML = 
+                    `📍 Nearest stop: <strong>${data.nearest_stop}</strong><br>` +
+                    `📏 Distance: <strong>${data.distance} km</strong>`;
+                showBlock('locationInfo');
+                document.getElementById('start').value = data.nearest_stop;
+            }
+            document.getElementById('getLocationBtn').innerHTML = '📍 Location Found!';
+            document.getElementById('getLocationBtn').disabled = false;
+        })
+        .catch(err => {
+            console.error('Error finding nearest stop:', err);
+            showError('Error finding nearest stop: ' + err.message);
+            document.getElementById('getLocationBtn').innerHTML = '📍 Get My Location';
+            document.getElementById('getLocationBtn').disabled = false;
+        });
+    }
+
+    document.getElementById('end').addEventListener('change', function() {
+        const start = document.getElementById('start').value;
+        const end = this.value;
+        
+        if (start && end && start !== end) {
+            fetch(apiUrl('/api/find-route'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    region: region,
+                    start: start,
+                    end: end,
+                    algorithm: 'dijkstra'
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.error) {
+                    document.getElementById('routeDistanceText').innerHTML = 
+                        `🚍 Total route distance: <strong>${data.distance} km</strong><br>` +
+                        `⏱️ Estimated time: <strong>${data.time} hours</strong>`;
+                    showBlock('routeDistanceInfo');
+                }
+            })
+            .catch(err => console.log('Error:', err));
+        }
+    });
+
+    document.getElementById('findRouteBtn').addEventListener('click', findRoute);
+
+    function findRoute() {
+        const start = document.getElementById('start').value;
+        const end = document.getElementById('end').value;
+        const algorithm = document.getElementById('algorithm').value;
+
+        if (!start || !end) {
+            showError('Please select both start and end stops');
+            return;
+        }
+
+        if (start === end) {
+            showError('Start and end stops must be different');
+            return;
+        }
+
+        showBlock('loading');
+        hideBlock('result');
+        hideBlock('error');
+
+        console.log('Finding route:', { region, start, end, algorithm });
+        fetch(apiUrl('/api/find-route'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                region: region,
+                start: start,
+                end: end,
+                algorithm: algorithm
+            })
+        })
+        .then(r => {
+            console.log('Find route response:', r.status);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
+        .then(data => {
+            console.log('Route data received:', data);
+            hideBlock('loading');
+            if (data.error) {
+                showError(data.error);
+            } else {
+                showResult(data);
+                drawRouteOnMap(data);
+            }
+        })
+        .catch(error => {
+            console.error('Error finding route:', error);
+            hideBlock('loading');
+            showError('Error finding route: ' + error.message);
+        });
+    }
+
+    function showError(message) {
+        const errorDiv = document.getElementById('error');
+        errorDiv.innerHTML = `
+            <div class="result error">
+                <h2>⚠️ Error</h2>
+                <p>${message}</p>
+            </div>
+        `;
+        showBlock('error');
+    }
+
+    function showResult(data) {
+        currentRouteData = data;
+        const resultDiv = document.getElementById('result');
+        const pathHtml = data.path.map(stop => 
+            `<span class="route-chip">${stop}</span>`
+        ).join('<span class="route-arrow">→</span>');
+
+        resultDiv.innerHTML = `
+            <div class="result">
+                <h2>✅ Optimal Route Found!</h2>
+                <div class="result-grid">
+                    <div>
+                        <p><strong>Algorithm:</strong> ${data.algorithm.charAt(0).toUpperCase() + data.algorithm.slice(1)}</p>
+                        <p><strong>Total Distance:</strong> ${data.distance} km</p>
+                        <p><strong>Bus Stops:</strong> ${data.stops}</p>
+                    </div>
+                    <div>
+                        <p><strong>Estimated Time:</strong> ${data.time} hours</p>
+                        <p><strong>Average Speed:</strong> 40 km/h</p>
+                    </div>
+                </div>
+                <p><strong>Route Path:</strong></p>
+                <div class="route-path-wrap">
+                    ${pathHtml}
+                </div>
+                <div class="booking-field">
+                    <label for="bookingName"><strong>Your Name</strong></label>
+                    <input id="bookingName" type="text" placeholder="Enter your name" />
+                </div>
+                <div class="cta-row">
+                    <button onclick="bookRoute()" type="button" class="action-btn">Book Route</button>
+                    <button onclick="openGoogleMaps()" type="button" class="action-btn secondary">Open Google Maps</button>
+                </div>
+                <div id="bookingStatus" class="booking-status"></div>
+            </div>
+        `;
+        showBlock('result');
+    }
+
+    function drawRouteOnMap(data) {
+        if (!data.coordinates || data.coordinates.length < 2) {
+            return;
+        }
+
+        showBlock('mapWrap');
+        document.getElementById('mapDistance').innerText = `Distance: ${data.distance} km | Time: ${data.time} h`;
+
+        initMapIfNeeded();
+
+        if (routeLayer) {
+            map.removeLayer(routeLayer);
+        }
+        routeMarkers.forEach(marker => map.removeLayer(marker));
+        routeMarkers = [];
+
+        routeLayer = L.polyline(data.coordinates, {
+            color: '#0fbab0',
+            weight: 5,
+            opacity: 0.86
+        }).addTo(map);
+
+        const startMarker = L.marker(data.coordinates[0]).addTo(map).bindPopup(`<b>START</b><br>${data.path[0]}`);
+        const endMarker = L.marker(data.coordinates[data.coordinates.length - 1]).addTo(map)
+            .bindPopup(`<b>END</b><br>${data.path[data.path.length - 1]}`);
+        routeMarkers.push(startMarker, endMarker);
+
+        map.fitBounds(routeLayer.getBounds(), { padding: [24, 24] });
+        setTimeout(() => map.invalidateSize(), 100);
+    }
+
+    function bookRoute() {
+        if (!currentRouteData) {
+            showError('Please calculate route first before booking.');
+            return;
+        }
+
+        const bookingName = document.getElementById('bookingName')?.value?.trim() || 'Anonymous';
+        const start = document.getElementById('start').value;
+        const end = document.getElementById('end').value;
+        const statusDiv = document.getElementById('bookingStatus');
+
+        fetch(apiUrl('/api/book-route'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: bookingName,
+                region,
+                start,
+                end,
+                algorithm: currentRouteData.algorithm,
+                distance: currentRouteData.distance,
+                path: currentRouteData.path,
+                map_link: currentRouteData.map_link
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            showBlock('bookingStatus');
+            if (data.error) {
+                statusDiv.innerHTML = `<p class="mini-status status-error">Booking failed: ${data.error}</p>`;
+                return;
+            }
+
+            statusDiv.innerHTML = `
+                <p class="mini-status status-success">${data.message}</p>
+                <p class="mini-status status-warning">Booking ID: ${data.booking_id}</p>
+            `;
+            currentRouteData.map_link = data.map_link || currentRouteData.map_link;
+        })
+        .catch(error => {
+            showBlock('bookingStatus');
+            statusDiv.innerHTML = `<p class="mini-status status-error">Booking API error: ${error.message}</p>`;
+        });
+    }
+
+    function openGoogleMaps() {
+        if (!currentRouteData || !currentRouteData.map_link) {
+            showError('Google Maps link not available. Find a route first.');
+            return;
+        }
+        window.open(currentRouteData.map_link, '_blank');
+    }
+
+    document.addEventListener('DOMContentLoaded', initPage);
+    </script>
+</body>
+</html>

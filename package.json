@@ -1,0 +1,17 @@
+{
+  "name": "pbl-daa-frontend",
+  "version": "1.0.0",
+  "description": "Bus Route Optimization Frontend - Static HTML deployed on Vercel",
+  "scripts": {
+    "dev": "python -m http.server 3000",
+    "start": "python -m http.server 3000"
+  },
+  "keywords": [
+    "bus-route",
+    "dijkstra",
+    "a-star",
+    "optimization"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
