@@ -36,6 +36,14 @@
         return '';
     }
 
+    function isStaticHost(hostname) {
+        return (
+            hostname.includes('vercel.app') ||
+            hostname.includes('netlify.app') ||
+            hostname.includes('github.io')
+        );
+    }
+
     function getApiBaseUrl() {
         const runtimeOverride = tryUrl(window.__PBL_BACKEND_URL__);
         if (runtimeOverride) {
@@ -58,7 +66,7 @@
             return localBackend;
         }
 
-        if (window.location.hostname.includes('onrender.com')) {
+        if (!isStaticHost(window.location.hostname)) {
             return window.location.origin;
         }
 
