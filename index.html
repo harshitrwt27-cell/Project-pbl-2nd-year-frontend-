@@ -12,7 +12,6 @@
             <p class="hero-label">Smart Transit Navigation</p>
             <h1>🚍 Bus Route Optimizer</h1>
             <p class="subtitle">Choose your region and get faster route planning with algorithm-based optimization.</p>
-            <p class="backend-pill" id="backendBadge">Backend: Detecting...</p>
             <div class="hero-kpis">
                 <div class="kpi-card">
                     <span class="kpi-value" data-counter="2">0</span>
@@ -79,22 +78,6 @@
     <script>
     document.addEventListener('DOMContentLoaded', function () {
         const backend = window.PBL_CONFIG.getApiBaseUrl();
-        const badge = document.getElementById('backendBadge');
-        badge.textContent = `Backend: ${backend}`;
-
-        fetch(`${backend}/api/health`)
-            .then((response) => {
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(() => {
-                badge.textContent = `Backend: Connected (${backend})`;
-            })
-            .catch(() => {
-                badge.textContent = `Backend: Not reachable (${backend})`;
-            });
 
         document.querySelectorAll('.region-link').forEach((link) => {
             const url = new URL(link.getAttribute('href'), window.location.href);

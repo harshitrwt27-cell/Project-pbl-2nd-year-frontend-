@@ -16,7 +16,6 @@
             <div>
                 <h1>🗺️ Bus Network Map</h1>
                 <p class="subtitle" id="regionName">Region</p>
-                <p class="backend-pill" id="backendBadge">Backend: Detecting...</p>
             </div>
             <a href="index.html" class="region-button back-link">← Change Region</a>
         </div>
@@ -105,22 +104,6 @@
     }
 
     function initPage() {
-        const badge = document.getElementById('backendBadge');
-        badge.textContent = `Backend: ${API_BASE_URL}`;
-        fetch(apiUrl('/api/health'))
-            .then((response) => {
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(() => {
-                badge.textContent = `Backend: Connected (${API_BASE_URL})`;
-            })
-            .catch(() => {
-                badge.textContent = `Backend: Not reachable (${API_BASE_URL})`;
-            });
-
         document.getElementById('regionName').textContent = REGION_MAP[region]?.name || region;
         document.getElementById('routeLink').href = `${REGION_MAP[region]?.routeLink || '#'}&backend=${encodeURIComponent(API_BASE_URL)}`;
         document.getElementById('networkLink').href = `network.html?region=${region}&backend=${encodeURIComponent(API_BASE_URL)}`;
